@@ -32,6 +32,8 @@ following table of MD5 checksum permutations:
 ```
 
 ## Usage
+The following shows an example for setting up a synchronization configuration in an Unreal Engine 5 project.
+
 ### 1. Initialize a synchronization configuration by running:
 ```shell
 cloud-share.exe init --url "https://drive.google.com/drive/u/0/folders/1xHSJiSFQqcjy1opVYLJ4NpPLwLLd_myh" --path "./"
