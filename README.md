@@ -60,3 +60,21 @@ cloud-share.exe --help # Show a full list of commands
 cloud-share.exe pull --help # Show the arguments for the pull command
 cloud-share.exe exclude --help # Show the arguments for the exclude command
 ```
+
+## Building from source
+Building from source is simple, though it has a prerequisite of having a Google Cloud Platform project with
+an OAuth 2.0 client ID. See https://console.cloud.google.com/apis/credentials.
+
+The client ID should be downloaded and placed in `./assets/client_secret.json`. This will be embedded into the build binary.
+
+**Do not** alter the .gitignore to allow this file to be added to the repository. That would not be good.
+
+### 1. Clone the repository
+```shell
+git clone https://github.com/aaronboult/cloud-share-rs.git -b main # Or the branch you want to build from
+```
+
+### 2. Build the project
+```shell
+cargo build --release
+```
