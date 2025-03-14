@@ -1,0 +1,29 @@
+[package]
+name = "cloud-share"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.4", features = ["derive"] }
+serde = {version = "1.0.218", features = ["derive"]}
+toml = "0.8.20"
+tokio = { version = "1.0", features = ["full"] }
+hyper = "1.6.0"
+hyper-util = "0.1.10"
+hyper-rustls = {version = "0.27.5", features = ["ring"]}
+yup-oauth2 = "12.1.0"
+rustls = "0.23.23"
+http-body-util = "0.1.2"
+path-clean = "1.0.1"
+futures = "0.3.31"
+thiserror = "2.0.11"
+mime = "0.3.17"
+mime_guess = "2.0.5"
+bytes = "1.10.0"
+google-drive3 = "=6.0.0"
+md5 = "0.7.0"
+walkdir = "2.5.0"
+log = "0.4.26"
+
+[build-dependencies]
+winresource = "0.1.19"
