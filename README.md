@@ -65,7 +65,7 @@ cloud-share.exe exclude --help # Show the arguments for the exclude command
 Building from source is simple, though it has a prerequisite of having a Google Cloud Platform project with
 an OAuth 2.0 client ID. See https://console.cloud.google.com/apis/credentials.
 
-The client ID should be downloaded and placed in `./assets/client_secret.json`. This will be embedded into the build binary.
+The client ID should be downloaded and placed in `./assets/client_secret.json`. This will be embedded into the built binary.
 
 **Do not** alter the .gitignore to allow this file to be added to the repository. That would not be good.
 
