@@ -143,6 +143,10 @@ pub struct CloudService {
 }
 
 impl CloudService {
+    pub fn get_tokens_filename() -> &'static str {
+        "tokens.json"
+    }
+
     pub async fn new(verbose: bool) -> Result<Self, CloudError> {
         println_verbose!(verbose, "Initializing Google Drive API...");
 
@@ -162,7 +166,7 @@ impl CloudService {
                 secret.unwrap(),
                 yup_oauth2::InstalledFlowReturnMethod::HTTPRedirect,
             )
-            .persist_tokens_to_disk("tokens.json")
+            .persist_tokens_to_disk(CloudService::get_tokens_filename())
             .build()
             .await;
 

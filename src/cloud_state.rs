@@ -1,7 +1,7 @@
 use crate::cloud::CloudService;
 use crate::config::Config;
 use crate::registry::{compute_file_md5, RegistryEntry};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use walkdir::WalkDir;
 use crate::println_verbose;
@@ -11,14 +11,14 @@ use crate::println_verbose;
 /// |-------------------------------------------------|
 /// |  None |   None   |  None  |   No     |   No     | No files
 /// |   1   |   None   |  None  |   No     |   Yes    | New local file
-/// |  None |    1     |  None  |   No     |   No     | Deleted local file, Deleted remote file
+/// |  None |    1     |  None  |   No     |   No     | Deleted local file, Deleted remote file. Conflicted
 /// |  None |   None   |   1    |   Yes    |   No     | New remote file
 /// |   1   |    1     |  None  |   Yes    |   Yes    | Deleted remote file
 /// |  None |    1     |   1    |   Yes    |   Yes    | Deleted local file
 /// |   1   |   None   |   1    |   No     |   No     | New local file, New remote file
 /// |   1   |    1     |   1    |   No     |   No     | Nothing changed
 /// |   2   |    1     |   1    |   No     |   Yes    | Changed local file
-/// |   1   |    2     |   1    |   No     |   No     | Changed local file, Changed remote file
+/// |   1   |    2     |   1    |   No     |   No     | Changed local file, Changed remote file. Conflicted
 /// |   1   |    1     |   2    |   Yes    |   No     | Changed remote file
 /// |-------------------------------------------------|
 
@@ -396,6 +396,27 @@ impl<'a> CloudState<'a> {
             let name = entry.file_name().to_str();
 
             if path.is_dir() {
+                continue;
+            }
+
+            // Make sure we aren't checking ourselves or our config
+            if let Ok(abs_path) = path.canonicalize() {
+                if let Ok(current_exe_path) = std::env::current_exe() {
+                    if let Ok(abs_exe_path) = current_exe_path.canonicalize() {
+                        if abs_path == abs_exe_path {
+                            continue;
+                        }
+                    }
+                }
+
+                if let Ok(tokens_path) = Path::new(&format!("./{}", CloudService::get_tokens_filename())).canonicalize() {
+                    if abs_path == tokens_path {
+                        continue;
+                    }
+                }
+            }
+
+            if path == config.get_system_local_path().unwrap_or(PathBuf::new()).join(&config.get_filename()) {
                 continue;
             }
 

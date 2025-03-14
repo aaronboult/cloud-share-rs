@@ -26,6 +26,10 @@ impl Config {
         self
     }
 
+    pub fn get_filename(&self) -> &String {
+        &self.filename
+    }
+
     pub fn load(filename: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let content = fs::read_to_string(filename)?;
 

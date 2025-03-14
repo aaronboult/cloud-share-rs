@@ -19,17 +19,20 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
+    /// Initialize a new synchronization configuration
+    Init(InitArgs),
+
+    /// Reset synchronization state for a path
+    Reset(ResetArgs),
+
     /// Download files from cloud storage
     Pull(PullArgs),
 
     /// Upload files to cloud storage
     Push(PushArgs),
 
-    /// Initialize a new synchronization configuration
-    Init(InitArgs),
-
-    /// Reset synchronization state for a path
-    Reset(ResetArgs),
+    /// Synchronize with the remote by performing a pull and push if there are no conflicts
+    Sync,
 
     /// Set the remote url
     SetRemote(SetRemoteArgs),
@@ -95,8 +98,8 @@ pub struct SetRemoteArgs {
 
 #[derive(Args)]
 pub struct ExcludeArgs {
-    /// Path to exclude from synchronization
-    pub path: String,
+    /// Paths to exclude from synchronization
+    pub paths: Vec<String>,
 
     /// File patterns to exclude (pipe-separated)
     #[arg(long)]

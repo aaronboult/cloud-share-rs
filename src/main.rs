@@ -29,9 +29,10 @@ async fn main() {
     match cli.command {
         Some(Commands::Init(args)) => handle_init(args, verbose),
         Some(Commands::Reset(args)) => handle_reset(args, verbose),
-        Some(Commands::SetRemote(args)) => handle_set_remote(args, verbose),
         Some(Commands::Pull(args)) => handle_pull(args, verbose).await,
         Some(Commands::Push(args)) => handle_push(args, verbose).await,
+        Some(Commands::Sync) => handle_sync(verbose).await,
+        Some(Commands::SetRemote(args)) => handle_set_remote(args, verbose),
         Some(Commands::Exclude(args)) => handle_exclude(args, verbose),
         Some(Commands::Include(args)) => handle_include(args, verbose),
         Some(Commands::Status) => handle_status(verbose).await,
@@ -122,27 +123,26 @@ fn handle_set_remote(_args: SetRemoteArgs, verbose: bool) {
 async fn handle_pull<'a>(_args: PullArgs, verbose: bool) {
     println!("Pulling files from cloud storage...");
 
-    let config_raw = Config::load(CONFIG_FILENAME);
+    let config = Config::load(CONFIG_FILENAME);
 
-    if config_raw.is_err() {
-        eprintln!("Failed to load configuration: {:?}", config_raw.err());
+    if config.is_err() {
+        eprintln!("Failed to load configuration: {:?}", config.err());
         return;
     }
-    let config_raw = config_raw.unwrap();
+    let config = config.unwrap();
 
-    let cloud_raw = cloud::CloudService::new(verbose).await;
+    let cloud = cloud::CloudService::new(verbose).await;
 
-    if cloud_raw.is_err() {
-        eprintln!("Failed to initialize cloud service: {:?}", cloud_raw.err());
+    if cloud.is_err() {
+        eprintln!("Failed to initialize cloud service: {:?}", cloud.err());
         return;
     }
-    let cloud_raw = cloud_raw.unwrap();
+    let cloud = cloud.unwrap();
 
     println!("Connected to cloud storage");
     println!("Loading and parsing state...");
 
-    let state = CloudState::load(&config_raw, &cloud_raw, verbose)
-        .await;
+    let state = CloudState::load(&config, &cloud, verbose).await;
 
     if state.is_err() {
         eprintln!("Failed to load cloud state: {:?}", state.err());
@@ -152,23 +152,38 @@ async fn handle_pull<'a>(_args: PullArgs, verbose: bool) {
 
     println!("State loaded, beginning pull operations...");
 
+    match do_pull_operation(&state, config, &cloud, verbose).await {
+        Ok(result) => {
+            if result {
+                println!("Pull complete");
+            }
+            else {
+                println!("Up to date, nothing to pull");
+            }
+
+            display_conflicts(&state, verbose);
+        },
+        Err(e) => eprintln!("Failed to pull: {:?}", e),
+    }
+}
+
+async fn do_pull_operation<'a>(state: &CloudState<'a>, config: Config, cloud: &cloud::CloudService, verbose: bool) -> Result<bool, String> {
     // Wrap config in Arc<Mutex> for thread-safe access
-    let local_path = config_raw.get_system_local_path();
+    let local_path = config.get_system_local_path();
 
     if local_path.is_err() {
-        eprintln!("Failed to get local path: {:?}", local_path.err());
-        return;
+        return Err(format!("Failed to get local path: {:?}", local_path.err()));
     }
     let local_path = local_path.unwrap();
 
-    let config_mutex = Arc::new(Mutex::new(config_raw));
+    let config_mutex = Arc::new(Mutex::new(config));
 
     // Create a vector to hold task handles
     let mut tasks: Vec<tokio::task::JoinHandle<Result<(), CloudError>>> = Vec::new();
 
     for file in state.get_pull_iterator() {
         // Clone Arc references for each task
-        let cloud = cloud_raw.clone();
+        let cloud = cloud.clone();
         let config = Arc::clone(&config_mutex);
         let local_path_copy = local_path.clone();
         let rel_path = file.rel_path().clone();
@@ -226,49 +241,66 @@ async fn handle_pull<'a>(_args: PullArgs, verbose: bool) {
     }
 
     if tasks.is_empty() {
-        println!("Up to date, nothing to pull");
-        return;
+        return Ok(false);
     }
 
     // Wait for all downloads to complete
     let results = futures::future::join_all(tasks).await;
 
     // Check for errors
+    let mut success = true;
+
+    let mut error_string = String::new();
+
     for result in results {
         match result {
-            Ok(Ok(_)) => {},
-            Ok(Err(e)) => eprintln!("Task failed: {}", e),
-            Err(e) => eprintln!("Task panicked: {:?}", e),
+            Ok(Ok(_)) => {
+                success = true;
+            },
+            Ok(Err(e)) => {
+                success = false;
+                error_string.push_str(&format!("Task failed: {}\n", e));
+                eprintln!("Task failed: {}", e)
+            },
+            Err(e) => {
+                success = false;
+                error_string.push_str(&format!("Task failed: {:?}\n", e));
+                eprintln!("Task failed: {:?}", e);
+            },
         }
     }
 
-    display_conflicts(&state, verbose);
+    if success {
+        Ok(true)
+    }
+    else {
+        Err(error_string)
+    }
 }
 
 async fn handle_push(_args: PushArgs, verbose: bool) {
     println!("Pushing files to cloud storage...");
 
-    let config_raw = Config::load(CONFIG_FILENAME);
+    let config = Config::load(CONFIG_FILENAME);
 
-    if config_raw.is_err() {
-        eprintln!("Failed to load configuration: {:?}", config_raw.err());
+    if config.is_err() {
+        eprintln!("Failed to load configuration: {:?}", config.err());
         return;
     }
-    let mut config_raw = config_raw.unwrap();
+    let mut config = config.unwrap();
 
-    let cloud_raw = cloud::CloudService::new(verbose).await;
+    let cloud = cloud::CloudService::new(verbose).await;
 
-    if cloud_raw.is_err() {
-        eprintln!("Failed to initialize cloud service: {:?}", cloud_raw.err());
+    if cloud.is_err() {
+        eprintln!("Failed to initialize cloud service: {:?}", cloud.err());
         return;
     }
-    let cloud_raw = cloud_raw.unwrap();
+    let cloud = cloud.unwrap();
 
     println!("Connected to cloud storage");
     println!("Loading and parsing state...");
 
-    let state = CloudState::load(&config_raw, &cloud_raw, verbose)
-        .await;
+    let state = CloudState::load(&config, &cloud, verbose).await;
 
     if state.is_err() {
         eprintln!("Failed to load cloud state: {:?}", state.err());
@@ -278,6 +310,22 @@ async fn handle_push(_args: PushArgs, verbose: bool) {
 
     println!("State loaded, beginning push operations...");
 
+    match do_push_operation(&state, &mut config, &cloud, verbose).await {
+        Ok(result) => {
+            if result {
+                println!("Push complete");
+            }
+            else {
+                println!("Up to date, nothing to push");
+            }
+
+            display_conflicts(&state, verbose);
+        },
+        Err(e) => eprintln!("Failed to push: {:?}", e),
+    }
+}
+
+async fn do_push_operation<'a>(state: &CloudState<'a>, config: &mut Config, cloud: &cloud::CloudService, verbose: bool) -> Result<bool, String> {
     let mut push_attempt_counter = 0;
 
     for file in state.get_push_iterator() {
@@ -291,11 +339,11 @@ async fn handle_push(_args: PushArgs, verbose: bool) {
             existing_id = Some(registry_entry.unwrap().id.clone());
         }
 
-        let local_path = config_raw.get_system_local_path();
+        let local_path = config.get_system_local_path();
 
         if local_path.is_err() {
             eprintln!("Failed to get local path: {:?}", local_path.err());
-            return;
+            return Err(String::from("Failed to get local path"));
         }
         let local_path = Config::make_path_remote(&local_path.unwrap());
 
@@ -312,10 +360,10 @@ async fn handle_push(_args: PushArgs, verbose: bool) {
 
         println!("Uploading file with ID: {:?}", existing_id);
 
-        let remote_id = cloud_raw.upload_file(
+        let remote_id = cloud.upload_file(
             existing_id.clone(),
             &file.abs_path(),
-            &config_raw.remote_url,
+            &config.remote_url,
             &local_path,
             verbose,
         )
@@ -332,12 +380,12 @@ async fn handle_push(_args: PushArgs, verbose: bool) {
                 if existing_id.is_some() {
                     println_verbose!(verbose, "[{:?}] Updating registry entry", &rel_path);
 
-                    config_raw.update_entry_hash(remote_id, remote_hash);
+                    config.update_entry_hash(remote_id, remote_hash);
                 }
                 else {
                     println_verbose!(verbose, "[{:?}] Adding registry entry", &rel_path);
 
-                    config_raw.add_registry_entry(&RegistryEntry {
+                    config.add_registry_entry(&RegistryEntry {
                         id: remote_id,
                         name: name.to_string(),
                         path: rel_path.clone(),
@@ -349,7 +397,7 @@ async fn handle_push(_args: PushArgs, verbose: bool) {
                 if existing_id.is_some() {
                     println_verbose!(verbose, "[{:?}] File removed from cloud storage, removing from registry...", &rel_path);
 
-                    config_raw.remove_registry_entry(rel_path.clone());
+                    config.remove_registry_entry(rel_path.clone());
                 }
             }
         }
@@ -358,50 +406,157 @@ async fn handle_push(_args: PushArgs, verbose: bool) {
     }
 
     if push_attempt_counter == 0 {
-        println!("Up to date, nothing to push");
+        return Ok(false);
+    }
+
+    match config.save() {
+        Ok(_) => {
+            println!("Configuration saved");
+
+            Ok(true)
+        },
+        Err(e) => {
+            Err(format!("Failed to save configuration: {:?}", e))
+        },
+    }
+}
+
+async fn handle_sync(verbose: bool) {
+    // Perform a pull and a push if there are no conflicts
+    println!("Synchronizing with cloud storage...");
+
+    let config = Config::load(CONFIG_FILENAME);
+
+    if config.is_err() {
+        eprintln!("Failed to load configuration: {:?}", config.err());
+        return;
+    }
+    let mut config = config.unwrap();
+
+    let cloud = cloud::CloudService::new(verbose).await;
+
+    if cloud.is_err() {
+        eprintln!("Failed to initialize cloud service: {:?}", cloud.err());
+        return;
+    }
+    let cloud = cloud.unwrap();
+
+    println!("Connected to cloud storage");
+
+    let state = CloudState::load(&config, &cloud, verbose).await;
+
+    if state.is_err() {
+        eprintln!("Failed to load cloud state: {:?}", state.err());
+        return;
+    }
+    let state = state.unwrap();
+
+    if state.get_conflict_count() > 0 {
+        println!("Conflicts found, resolve conflicts manually and run push/pull again");
+
+        display_conflicts(&state, verbose);
+
         return;
     }
 
-    display_conflicts(&state, verbose);
+    println!("State loaded, beginning sync operations...");
 
-    match config_raw.save() {
-        Ok(_) => println!("Configuration saved"),
-        Err(e) => eprintln!("Failed to save configuration: {:?}", e),
+    // do_push_operation(&state, &mut config, &cloud, verbose).await;
+    // do_pull_operation(&state, config, &cloud, verbose).await;
+    let mut success = true;
+
+    match do_push_operation(&state, &mut config, &cloud, verbose).await {
+        Ok(result) => {
+            if result {
+                println!("Push complete");
+            }
+            else {
+                println!("Up to date, nothing to push");
+            }
+        },
+        Err(e) => {
+            eprintln!("Failed to push: {:?}", e);
+            success = false;
+        },
+    }
+
+    if !success {
+        eprintln!("Failed to synchronize with cloud");
+        return;
+    }
+
+    match do_pull_operation(&state, config, &cloud, verbose).await {
+        Ok(result) => {
+            if result {
+                println!("Pull complete");
+            }
+            else {
+                println!("Up to date, nothing to pull");
+            }
+        },
+        Err(e) => {
+            eprintln!("Failed to pull: {:?}", e);
+            success = false;
+        },
+    }
+
+    if success {
+        println!("Sync complete");
+    }
+    else {
+        eprintln!("Failed to synchronize with cloud");
     }
 }
 
 fn handle_exclude(_args: ExcludeArgs, verbose: bool) {
-    let formatted_path = Config::format_path(&PathBuf::from(_args.path.clone()));
-    let pattern_display = _args.filename_pattern.clone().unwrap_or_else(|| String::from("*"));
+    let filename_pattern = _args.filename_pattern;
+    let config = Config::load(CONFIG_FILENAME);
 
-    println!("Excluding path: {} with pattern: {}", formatted_path.to_str().unwrap(), pattern_display);
+    if config.is_err() {
+        eprintln!("Failed to load configuration: {:?}", config.err());
+        return;
+    }
+    let mut config = config.unwrap();
 
-    let result = Config::load(CONFIG_FILENAME)
-        .map(|mut config| {
-            config.add_exclusion_rule(_args.path, _args.filename_pattern)
-                .save()
-        })
-        .map(|_| ());
+    for path in _args.paths {
+        let formatted_path = Config::format_path(&PathBuf::from(path.clone()));
+        let pattern_display = filename_pattern.clone().unwrap_or_else(|| String::from("*"));
 
-    match result {
-        Ok(_) => println!("Path excluded"),
-        Err(e) => eprintln!("Failed to exclude path: {:?}", e),
+        println!("Excluding path: {} with pattern: {}", formatted_path.to_str().unwrap(), pattern_display);
+
+        let result = config.add_exclusion_rule(path, filename_pattern.clone())
+            .save();
+
+        match result {
+            Ok(_) => println!("Path excluded"),
+            Err(e) => eprintln!("Failed to exclude path: {:?}", e),
+        }
     }
 }
 
 fn handle_include(_args: ExcludeArgs, verbose: bool) {
-    println!("Including path: {}", _args.path);
+    let filename_pattern = _args.filename_pattern;
+    let config = Config::load(CONFIG_FILENAME);
 
-    let result = Config::load(CONFIG_FILENAME)
-        .map(|mut config| {
-            config.remove_exclusion_rule(_args.path, _args.filename_pattern)
-                .save()
-        })
-        .map(|_| ());
+    if config.is_err() {
+        eprintln!("Failed to load configuration: {:?}", config.err());
+        return;
+    }
+    let mut config = config.unwrap();
 
-    match result {
-        Ok(_) => println!("Path included"),
-        Err(e) => eprintln!("Failed to include path: {:?}", e),
+    for path in _args.paths {
+        let formatted_path = Config::format_path(&PathBuf::from(path.clone()));
+        let pattern_display = filename_pattern.clone().unwrap_or_else(|| String::from("*"));
+
+        println!("Including path: {} with pattern: {}", formatted_path.to_str().unwrap(), pattern_display);
+
+        let result = config.remove_exclusion_rule(path, filename_pattern.clone())
+            .save();
+
+        match result {
+            Ok(_) => println!("Path included"),
+            Err(e) => eprintln!("Failed to include path: {:?}", e),
+        }
     }
 }
 
